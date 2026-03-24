@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>La Roue du Daily - Juste Prix</title>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
+    <style>
+        :root {
+            --gold: #ffd700;
+            --red: #e63946;
+            --blue: #457b9d;
+            --dark: #1b263b;
+            --darker: #0d1b2a;
+        }
+        body {
+            font-family: 'Arial Black', sans-serif;
+            background: radial-gradient(circle, var(--dark) 0%, var(--darker) 100%);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+        h1 { color: var(--gold); text-shadow: 2px 2px 10px rgba(0,0,0,0.5); margin: 20px 0; text-transform: uppercase; }
+
+        /* Sélection des présents */
+        #setup-zone {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 15px;
+            margin-bottom: 10px;
+            text-align: center;
+            border: 1px solid rgba(255,215,0,0.3);
+            z-index: 5;
+        }
+        .user-checkbox {
+            display: inline-block;
+            margin: 5px;
+            cursor: pointer;
+            padding: 10px 15px;
+            background: var(--blue);
+            border-radius: 5px;
+            transition: 0.3s;
+        }
+        .user-checkbox:has(input:not(:checked)) { opacity: 0.3; background: #2b2d42; }
+
+        /* Conteneur Roue */
+        #wheel-outer {
+            position: relative;
+            width: 420px;
+            height: 420px;
+            margin-top: 10px;
+        }
+        #wheel-canvas {
+            width: 100%; height: 100%;
+            border: 10px solid var(--gold);
+            border-radius: 50%;
+            box-shadow: 0 0 50px rgba(255, 215, 0, 0.3);
+        }
+        #pointer {
+            position: absolute;
+            top: -20px; left: 50%;
+            transform: translateX(-50%);
+            width: 0; height: 0;
+            border-left: 25px solid transparent;
+            border-right: 25px solid transparent;
+            border-top: 50px solid var(--red);
+            z-index: 10;
+        }
+
+        /* Overlay Gagnant (Pop-up) */
+        #winner-overlay {
+            position: fixed;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%) scale(0);
+            width: 420px;
+            text-align: center;
+            z-index: 100;
+            background: rgba(13, 27, 42, 0.98);
+            padding: 40px;
+            border-radius: 40px;
+            border: 4px solid var(--gold);
+            box-shadow: 0 0 150px rgba(0,0,0,1);
+            visibility: hidden;
+            transition: transform 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        #winner-overlay.active { transform: translate(-50%, -50%) scale(1); visibility: visible; }
+        
+        .avatar-circle {
+            width: 240px; height: 240px;
+            border-radius: 50%;
+            border: 10px solid var(--gold);
+            background: #fff;
+            margin: 0 auto;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 30px var(--gold);
+        }
+        .avatar-circle img { width: 100%; height: 100%; object-fit: cover; }
+        
+        /* Animation Photo : Tour complet puis rotation infinie douce */
+        .rotate-intro { animation: rotateIntro 1.2s ease-out forwards; }
+        .rotate-idle { animation: rotateSlow 10s linear infinite; }
+
+        .winner-name {
+            font-size: 3rem;
+            margin: 20px 0;
+            color: var(--gold);
+            text-transform: uppercase;
+        }
+
+        /* Boutons */
+        .btn-main {
+            padding: 18px 45px;
+            font-size: 1.3rem;
+            font-weight: bold;
+            background: linear-gradient(180deg, var(--red) 0%, #b32431 100%);
+            color: white;
+            border: none;
+            border-radius: 60px;
+            cursor: pointer;
+            box-shadow: 0 8px 15px rgba(0,0,0,0.4);
+            transition: 0.2s;
+            text-transform: uppercase;
+        }
+        .btn-main:hover { transform: scale(1.05); filter: brightness(1.1); }
+        .btn-main:disabled { background: #555; cursor: not-allowed; transform: none; }
+
+        /* Animations */
+        @keyframes rotateIntro { 
+            0% { transform: rotate(0deg) scale(0.3); } 
+            100% { transform: rotate(360deg) scale(1); } 
+        }
+        @keyframes rotateSlow {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+
+    <h1>🎡 LE JUSTE DAILY</h1>
+
+    <div id="setup-zone">
+        <p>Qui est présent ?</p>
+        <div id="participants-list"></div>
+    </div>
+
+    <div id="wheel-outer">
+        <div id="pointer"></div>
+        <canvas id="wheel-canvas" width="500" height="500"></canvas>
+    </div>
+
+    <button id="spin-btn-main" class="btn-main" style="margin-top:30px;" onclick="spin()">Lancer la roue !</button>
+
+    <div id="winner-overlay">
+        <div class="avatar-circle">
+            <img id="winner-photo" src="" alt="">
+        </div>
+        <div class="winner-name" id="winner-text"></div>
+        <button id="spin-btn-popup" class="btn-main" onclick="spin()">Relancer la roue !</button>
+    </div>
+
+    <script>
+        const team = [
+            { name: "Amine",      photo: "https://api.dicebear.com/7.x/avataaars/svg?seed=Amine" },
+            { name: "Chokri",     photo: "Ch.jpeg" },
+            { name: "Benjamin B", photo: "bb.jpeg" },
+            { name: "Xavier",     photo: "xavier.jpeg" },
+            { name: "Nabil",      photo: "https://api.dicebear.com/7.x/avataaars/svg?seed=Nabil" },
+            { name: "Sophie",     photo: "sophie.jpeg" },
+            { name: "Benjamin D", photo: "benjamin_d.jpeg" },
+            { name: "Badran",     photo: "badran.jpeg" }
+        ];
+
+        let available = [];
+        let currentRotation = 0;
+        let isSpinning = false;
+        const canvas = document.getElementById('wheel-canvas');
+        const ctx = canvas.getContext('2d');
+
+        function init() {
+            const listDiv = document.getElementById('participants-list');
+            team.forEach(m => {
+                const label = document.createElement('label');
+                label.className = 'user-checkbox';
+                label.innerHTML = `<input type="checkbox" checked value="${m.name}"> ${m.name}`;
+                listDiv.appendChild(label);
+                label.querySelector('input').addEventListener('change', updateParticipants);
+            });
+            updateParticipants();
+        }
+
+        function updateParticipants() {
+            if (isSpinning) return;
+            const checked = document.querySelectorAll('#participants-list input:checked');
+            available = Array.from(checked).map(cb => team.find(m => m.name === cb.value));
+            drawWheel();
+        }
+
+        function drawWheel() {
+            const n = available.length;
+            ctx.clearRect(0, 0, 500, 500);
+            if (n === 0) return;
+            const angle = (Math.PI * 2) / n;
+            available.forEach((m, i) => {
+                ctx.beginPath();
+                ctx.fillStyle = i % 2 === 0 ? '#457b9d' : '#1d3557';
+                ctx.moveTo(250, 250);
+                ctx.arc(250, 250, 240, i * angle, (i + 1) * angle);
+                ctx.fill();
+                ctx.strokeStyle = "rgba(255,255,255,0.3)";
+                ctx.stroke();
+                ctx.save();
+                ctx.translate(250, 250);
+                ctx.rotate(i * angle + angle / 2);
+                ctx.fillStyle = "white";
+                ctx.font = "bold 20px Arial";
+                ctx.fillText(m.name, 110, 8);
+                ctx.restore();
+            });
+        }
+
+        function spin() {
+            if (available.length === 0 || isSpinning) return;
+            
+            isSpinning = true;
+            const overlay = document.getElementById('winner-overlay');
+            const photoImg = document.getElementById('winner-photo');
+            const btnMain = document.getElementById('spin-btn-main');
+            const btnPopup = document.getElementById('spin-btn-popup');
+
+            // On cache tout pendant que ça tourne
+            overlay.classList.remove('active');
+            photoImg.className = ""; // Reset animations
+            btnMain.disabled = true;
+            btnPopup.disabled = true;
+
+            const extraDegrees = Math.floor(Math.random() * 360) + 1800; 
+            currentRotation += extraDegrees;
+            canvas.style.transition = "transform 4s cubic-bezier(0.15, 0, 0.15, 1)";
+            canvas.style.transform = `rotate(${currentRotation}deg)`;
+
+            setTimeout(() => {
+                const rotationEffectif = currentRotation % 360;
+                const segmentAngle = 360 / available.length;
+                const index = Math.floor(((360 - rotationEffectif + 270) % 360) / segmentAngle);
+                const winner = available[index];
+
+                // Setup Gagnant
+                photoImg.src = winner.photo;
+                document.getElementById('winner-text').innerText = winner.name;
+                
+                // Afficher Pop-up
+                overlay.classList.add('active');
+                
+                // Lancer l'intro (1.2s) puis enchaîner sur la rotation lente
+                photoImg.classList.add('rotate-intro');
+                setTimeout(() => {
+                    photoImg.classList.remove('rotate-intro');
+                    photoImg.classList.add('rotate-idle');
+                }, 1200);
+
+                confetti({ particleCount: 200, spread: 90, origin: { y: 0.6 } });
+
+                // Retrait de la liste et réactivation
+                setTimeout(() => {
+                    available.splice(index, 1);
+                    drawWheel();
+                    isSpinning = false;
+                    btnMain.disabled = false;
+                    btnPopup.disabled = false;
+                    if(available.length === 0) {
+                        btnPopup.innerText = "FIN DU DAILY !";
+                        btnPopup.disabled = true;
+                    }
+                }, 2000);
+            }, 4000);
+        }
+
+        init();
+    </script>
+</body>
+</html>
